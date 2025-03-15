@@ -77,9 +77,21 @@ int main(int argc, char** argv)
 	return 0;
 }
 
+std::string generateAudioFilename(const std::string &src) {
+    char timeBuffer[64];
+    std::time_t now = std::time(nullptr);
+    std::tm* t = std::localtime(&now);
+    std::strftime(timeBuffer, sizeof(timeBuffer), "/tmp/QSO/audio_%Y%m%d_%H%M%S_", t);
+    // Remove trailing spaces from callsign
+    std::string trimmed(src);
+    trimmed.erase(trimmed.find_last_not_of(" ") + 1);
+    return std::string(timeBuffer) + trimmed + ".amb";
+}
+
 CYSFReflector::CYSFReflector(const std::string& file) :
 m_conf(file),
-m_repeaters()
+m_repeaters(),
+m_activeAudioFile(nullptr)  // Initialize new member
 {
 	CUDPSocket::startup();
 }
@@ -256,6 +268,18 @@ void CYSFReflector::run()
 						LogMessage("Data from %10.10s at %10.10s blocked", src, tag);
 					else
                         LogMessage("Transmission from %.10s at %.10s to TG %.10s", src, tag, dst);
+                    // Open new audio file in /tmp for recording
+                                        {
+                                           std::string srcStr(reinterpret_cast<char*>(src), YSF_CALLSIGN_LENGTH);
+                                            std::string filename = generateAudioFilename(srcStr);
+                                            m_activeAudioFile = fopen(filename.c_str(), "wb");
+                                            if (m_activeAudioFile == nullptr) {
+                                                ::fprintf(stderr, "YSFReflector: failed to open audio file %s\n", filename.c_str());
+                                            } else {
+                                                LogMessage("Started recording audio to %s", filename.c_str());
+                                            }
+                                        }
+
 				} else {
 					if (::memcmp(tag, buffer + 4U, YSF_CALLSIGN_LENGTH) == 0) {
 						bool changed = false;
@@ -283,15 +307,28 @@ void CYSFReflector::run()
 				if (!blocked) {
 					watchdogTimer.start();
 
+					// Append audio payload (after 34-byte header) to recording file
+                                        if (m_activeAudioFile != nullptr) {
+                                            size_t payloadSize = (len > 34U) ? (len - 34U) : 0;
+                                            if (payloadSize > 0)
+                                                fwrite(buffer + 34U, 1, payloadSize, m_activeAudioFile);
+                                        }
+
 					for (std::vector<CYSFRepeater*>::const_iterator it = m_repeaters.begin(); it != m_repeaters.end(); ++it) {
 						if (!CUDPSocket::match((*it)->m_addr, addr))
 							network.writeData(buffer, (*it)->m_addr, (*it)->m_addrLen);
 					}
 
-					if ((buffer[34U] & 0x01U) == 0x01U) {
-                        LogMessage("Received end of transmission from %.10s at %.10s to TG %.10s", src, tag, dst);
-						watchdogTimer.stop();
-					}
+					 // Check for end-of-transmission flag (bit 0x01 in byte 34)
+                                        if ((buffer[34U] & 0x01U) == 0x01U) {
+                                            LogMessage("Received end of transmission from %.10s at %.10s to TG %.10s", src, tag, dst);
+                                            watchdogTimer.stop();
+                                            if (m_activeAudioFile != nullptr) {
+                                                fclose(m_activeAudioFile);
+                                                m_activeAudioFile = nullptr;
+                                                LogMessage("Finished recording audio QSO from %.10s", src);
+                                            }
+                                        }
 				}
 			}
 		}
