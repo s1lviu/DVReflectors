@@ -24,6 +24,7 @@
 #include "Thread.h"
 #include "Log.h"
 #include "GitVersion.h"
+#include <sys/stat.h>
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <Windows.h>
@@ -78,10 +79,22 @@ int main(int argc, char** argv)
 }
 
 std::string generateAudioFilename(const std::string &src) {
+    const char* directory = "/tmp/QSO";
+    struct stat st;
+    // Check if the directory exists
+    if (stat(directory, &st) == -1) {
+        // Directory doesn't exist; create it with permissions 0755
+        if (mkdir(directory, 0755) != 0) {
+            // Handle error as appropriate (e.g., log or throw an exception)
+            perror("mkdir failed");
+        }
+    }
+
     char timeBuffer[64];
     std::time_t now = std::time(nullptr);
     std::tm* t = std::localtime(&now);
     std::strftime(timeBuffer, sizeof(timeBuffer), "/tmp/QSO/audio_%Y%m%d_%H%M%S_", t);
+
     // Remove trailing spaces from callsign
     std::string trimmed(src);
     trimmed.erase(trimmed.find_last_not_of(" ") + 1);
