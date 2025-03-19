@@ -322,10 +322,22 @@ void CYSFReflector::run()
 
 					// Append audio payload (after 34-byte header) to recording file
                                         if (m_activeAudioFile != nullptr) {
-                                            size_t payloadSize = (len > 34U) ? (len - 34U) : 0;
-                                            if (payloadSize > 0)
-                                                fwrite(buffer + 34U, 1, payloadSize, m_activeAudioFile);
-                                        }
+                                                // Validate frame type and get correct AMBE data
+                                                if (buffer[34U] == YSF_FI_COMMUNICATIONS && len >= 155U) {
+                                                    const unsigned char* ambeData = buffer + 35U;  // Correct offset
+                                                    const size_t ambeSize = 120U;  // Fixed size
+
+                                                    // Endianness correction
+                                                    unsigned char swapped[120U];
+                                                    for (size_t i = 0; i < 120U; i += 2) {
+                                                        swapped[i] = ambeData[i + 1];
+                                                        swapped[i + 1] = ambeData[i];
+                                                    }
+
+                                                    fwrite(swapped, 1, ambeSize, m_activeAudioFile);
+                                                    fflush(m_activeAudioFile);  // Ensure data is written
+                                                }
+                                            }
 
 					for (std::vector<CYSFRepeater*>::const_iterator it = m_repeaters.begin(); it != m_repeaters.end(); ++it) {
 						if (!CUDPSocket::match((*it)->m_addr, addr))
