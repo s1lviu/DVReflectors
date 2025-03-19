@@ -25,6 +25,8 @@
 #include "Log.h"
 #include "GitVersion.h"
 #include <sys/stat.h>
+#include <atomic>
+#include <mutex>
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <Windows.h>

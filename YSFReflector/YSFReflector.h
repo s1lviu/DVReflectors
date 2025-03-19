@@ -70,7 +70,7 @@ private:
 	CYSFRepeater* findRepeater(const sockaddr_storage& addr) const;
 	void dumpRepeaters() const;
 
-	std::atomic<FILE*> m_activeAudioFile{nullptr};
+	std::atomic<FILE*> m_activeAudioFile;
     std::mutex m_fileMutex;
 };
 
