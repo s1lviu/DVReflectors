@@ -21,7 +21,8 @@
 
 #include "Timer.h"
 #include "Conf.h"
-
+#include <atomic>
+#include <mutex>
 #include <cstdio>
 #include <string>
 #include <vector>
