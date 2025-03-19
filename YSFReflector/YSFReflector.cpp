@@ -25,6 +25,7 @@
 #include "Log.h"
 #include "GitVersion.h"
 #include <sys/stat.h>
+#include <atomic>
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <Windows.h>
@@ -277,21 +278,30 @@ void CYSFReflector::run()
 						::memcpy(dst, "??????????", YSF_CALLSIGN_LENGTH);
 
 					blocked = blockList.check(src);
-					if (blocked)
-						LogMessage("Data from %10.10s at %10.10s blocked", src, tag);
-					else
+                    if (blocked) {
+                        LogMessage("Data from %10.10s at %10.10s blocked", src, tag);
+                    } else {
                         LogMessage("Transmission from %.10s at %.10s to TG %.10s", src, tag, dst);
-                    // Open new audio file in /tmp for recording
-                                        {
-                                           std::string srcStr(reinterpret_cast<char*>(src), YSF_CALLSIGN_LENGTH);
-                                            std::string filename = generateAudioFilename(srcStr);
-                                            m_activeAudioFile = fopen(filename.c_str(), "wb");
-                                            if (m_activeAudioFile == nullptr) {
-                                                ::fprintf(stderr, "YSFReflector: failed to open audio file %s\n", filename.c_str());
-                                            } else {
-                                                LogMessage("Started recording audio to %s", filename.c_str());
-                                            }
-                                        }
+
+                        {
+                            std::lock_guard<std::mutex> lock(m_fileMutex);
+                            FILE* previous = m_activeAudioFile.exchange(nullptr);
+                            if (previous) {
+                                fclose(previous);
+                                LogWarning("Overwriting unfinished recording");
+                            }
+
+                            std::string srcStr(reinterpret_cast<char*>(src), YSF_CALLSIGN_LENGTH);
+                            std::string filename = generateAudioFilename(srcStr);
+                            FILE* file = fopen(filename.c_str(), "wb");
+                            if (file) {
+                                m_activeAudioFile = file;
+                                LogMessage("Started recording audio to %s", filename.c_str());
+                            } else {
+                                ::fprintf(stderr, "YSFReflector: failed to open audio file %s\n", filename.c_str());
+                            }
+                        }
+                    }
 
 				} else {
 					if (::memcmp(tag, buffer + 4U, YSF_CALLSIGN_LENGTH) == 0) {
@@ -317,32 +327,43 @@ void CYSFReflector::run()
 					}
 				}
 
-				if (!blocked) {
-					watchdogTimer.start();
+				if (!blocked && len >= 155U) {
+                    switch (buffer[34U]) {
+                        case YSF_FI_HEADER:
+                            // Handle header frame if needed
+                            break;
 
-					// Append audio payload (after 34-byte header) to recording file
-                                        if (m_activeAudioFile != nullptr) {
-                                            size_t payloadSize = (len > 34U) ? (len - 34U) : 0;
-                                            if (payloadSize > 0)
-                                                fwrite(buffer + 34U, 1, payloadSize, m_activeAudioFile);
-                                        }
+                        case YSF_FI_COMMUNICATIONS: {
+                            unsigned char ambeFrame[YSF_FRAME_LENGTH_BYTES];
+                            const unsigned char* ambeData = buffer + 35U;
 
-					for (std::vector<CYSFRepeater*>::const_iterator it = m_repeaters.begin(); it != m_repeaters.end(); ++it) {
-						if (!CUDPSocket::match((*it)->m_addr, addr))
-							network.writeData(buffer, (*it)->m_addr, (*it)->m_addrLen);
-					}
+                            // Endianness swap
+                            for (size_t i = 0; i < YSF_FRAME_LENGTH_BYTES; i += 2) {
+                                ambeFrame[i] = ambeData[i + 1];
+                                ambeFrame[i + 1] = ambeData[i];
+                            }
 
-					 // Check for end-of-transmission flag (bit 0x01 in byte 34)
-                                        if ((buffer[34U] & 0x01U) == 0x01U) {
-                                            LogMessage("Received end of transmission from %.10s at %.10s to TG %.10s", src, tag, dst);
-                                            watchdogTimer.stop();
-                                            if (m_activeAudioFile != nullptr) {
-                                                fclose(m_activeAudioFile);
-                                                m_activeAudioFile = nullptr;
-                                                LogMessage("Finished recording audio QSO from %.10s", src);
-                                            }
-                                        }
-				}
+                            if (FILE* file = m_activeAudioFile.load()) {
+                                fwrite(ambeFrame, 1, sizeof(ambeFrame), file);
+                                fflush(file);
+                            }
+                            break;
+                        }
+
+                        case YSF_FI_TERMINATOR:
+                            // Fall through to handle EOT
+                        default:
+                            if (buffer[34U] & 0x01U) {  // Check EOT flag
+                                std::lock_guard<std::mutex> lock(m_fileMutex);
+                                if (FILE* file = m_activeAudioFile.exchange(nullptr)) {
+                                    fclose(file);
+                                    LogMessage("Finished recording audio QSO from %.10s", src);
+                                }
+                                watchdogTimer.stop();
+                            }
+                            break;
+                    }
+                }
 			}
 		}
 

@@ -68,7 +68,9 @@ private:
 
 	CYSFRepeater* findRepeater(const sockaddr_storage& addr) const;
 	void dumpRepeaters() const;
-	FILE* m_activeAudioFile; // Pointer for the active recording file
+
+	std::atomic<FILE*> m_activeAudioFile{nullptr};
+    std::mutex m_fileMutex;
 };
 
 #endif
