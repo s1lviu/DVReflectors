@@ -78,6 +78,8 @@ private:
     // Member functions AFTER
     CYSFRepeater* findRepeater(const sockaddr_storage& addr) const;
     void dumpRepeaters() const;
+    void startAMBERecording(const unsigned char* src);
+    void stopAMBERecording();
 };
 
 #endif
