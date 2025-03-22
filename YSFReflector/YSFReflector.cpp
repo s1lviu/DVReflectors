@@ -108,7 +108,7 @@ void CYSFReflector::startAMBERecording(const unsigned char* src)
 
 	char filename[128];
 	::snprintf(filename, sizeof(filename),
-		"/tmp/QSO/YSFReflector/%s_%s.ambe", call.c_str(), timeBuf);
+		"/tmp/QSO/%s_%s.ambe", call.c_str(), timeBuf);
 
 	m_recFile = ::fopen(filename, "wb");
 	if (!m_recFile) {
