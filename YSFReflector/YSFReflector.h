@@ -72,6 +72,8 @@ private:
     unsigned char              m_currentDst[YSF_CALLSIGN_LENGTH];
     sockaddr_storage           m_currentAddr;
     unsigned int               m_currentAddrLen;
+    bool  m_isRecording { false };
+    FILE* m_recFile     { nullptr };
 
     // Member functions AFTER
     CYSFRepeater* findRepeater(const sockaddr_storage& addr) const;

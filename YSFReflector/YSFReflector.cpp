@@ -90,6 +90,48 @@ CYSFReflector::~CYSFReflector()
 	CUDPSocket::shutdown();
 }
 
+void CYSFReflector::startAMBERecording(const unsigned char* src)
+{
+	if (m_isRecording)
+		return; // already recording
+
+	// Convert callsign to trimmed string
+	std::string call((char*)src, YSF_CALLSIGN_LENGTH);
+	while (!call.empty() && call.back() == ' ')
+		call.pop_back();
+
+	// Build file name, e.g., "N0CALL_20230323_151500.ambe"
+	char timeBuf[32];
+	time_t now = ::time(nullptr);
+	struct tm* tmnow = ::localtime(&now);
+	::strftime(timeBuf, sizeof(timeBuf), "%Y%m%d_%H%M%S", tmnow);
+
+	char filename[128];
+	::snprintf(filename, sizeof(filename),
+		"/tmp/QSO/YSFReflector/%s_%s.ambe", call.c_str(), timeBuf);
+
+	m_recFile = ::fopen(filename, "wb");
+	if (!m_recFile) {
+		LogMessage("Could not open AMBE record file: %s", filename);
+		return;
+	}
+
+	LogMessage("Started AMBE recording: %s", filename);
+	m_isRecording = true;
+}
+
+void CYSFReflector::stopAMBERecording()
+{
+	if (!m_isRecording)
+		return;
+
+	::fclose(m_recFile);
+	m_recFile     = nullptr;
+	m_isRecording = false;
+	LogMessage("Stopped AMBE recording");
+}
+
+
 void CYSFReflector::run()
 {
 	bool ret = m_conf.read();
@@ -275,6 +317,9 @@ void CYSFReflector::run()
                       watchdogTimer.start();
 
                       LogMessage("Transmission from %.10s at %.10s to TG %.10s", m_currentSrc, m_currentTag, m_currentDst);
+
+                      startAMBERecording(incomingSrc);
+
                   } else {
                       // Check if continuation from same source
                       bool isSameTag = (::memcmp(incomingTag, m_currentTag, YSF_CALLSIGN_LENGTH) == 0);
@@ -292,6 +337,24 @@ void CYSFReflector::run()
                           ::memcpy(m_currentDst, incomingDst, YSF_CALLSIGN_LENGTH);
                   }
 
+                  // Write the AMBE voice data (65 bytes) if we are recording
+                  				if (m_isRecording && len >= 155U) {
+                  					// Offsets for the 5 AMBE blocks:
+                  					//  1) 70..82  (13 bytes)
+                  					//  2) 88..100 (13 bytes)
+                  					//  3) 106..118 (13 bytes)
+                  					//  4) 124..136 (13 bytes)
+                  					//  5) 142..154 (13 bytes)
+                  					unsigned char ambeData[65];
+                  					::memcpy(ambeData +  0, buffer +  70, 13);
+                  					::memcpy(ambeData + 13, buffer +  88, 13);
+                  					::memcpy(ambeData + 26, buffer + 106, 13);
+                  					::memcpy(ambeData + 39, buffer + 124, 13);
+                  					::memcpy(ambeData + 52, buffer + 142, 13);
+
+                  					::fwrite(ambeData, 1, 65, m_recFile);
+                  				}
+
                   // Forward data to other repeaters
                   for (std::vector<CYSFRepeater*>::const_iterator it = m_repeaters.begin(); it != m_repeaters.end(); ++it) {
                       if (!CUDPSocket::match((*it)->m_addr, addr))
@@ -303,6 +366,9 @@ void CYSFReflector::run()
                       LogMessage("Received end of transmission from %.10s at %.10s to TG %.10s", m_currentSrc, m_currentTag, m_currentDst);
                       m_txActive = false;
                       watchdogTimer.stop();
+
+                      stopAMBERecording();
+
                       ::memset(m_currentTag, 0, YSF_CALLSIGN_LENGTH);
                       ::memset(m_currentSrc, 0, YSF_CALLSIGN_LENGTH);
                       ::memset(m_currentDst, 0, YSF_CALLSIGN_LENGTH);
@@ -345,6 +411,7 @@ void CYSFReflector::run()
                 ::memset(m_currentTag, 0, YSF_CALLSIGN_LENGTH);
                 ::memset(m_currentSrc, 0, YSF_CALLSIGN_LENGTH);
                 ::memset(m_currentDst, 0, YSF_CALLSIGN_LENGTH);
+                stopAMBERecording();
             }
             watchdogTimer.stop();
         }
