@@ -311,7 +311,7 @@ void CYSFReflector::run()
                     }
 
                     if (send_to_this_destination) {
-                        network.writeData(forward_buffer, len, dest_repeater->m_addr, dest_repeater->m_addrLen);
+                        network.writeData(forward_buffer, dest_repeater->m_addr, dest_repeater->m_addrLen);
                     }
                 }
 
