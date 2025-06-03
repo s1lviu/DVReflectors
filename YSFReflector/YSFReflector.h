@@ -19,13 +19,14 @@
 #if !defined(YSFReflector_H)
 #define	YSFReflector_H
 
-#include "YSFDefines.h"
-#include "Timer.h"
-#include "Conf.h"
+#include "YSFDefines.h" // For YSF_CALLSIGN_LENGTH
+#include "Timer.h"      // For CTimer
+#include "Conf.h"       // For CConf
 
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <cstdint> // For uint8_t
 
 #if !defined(_WIN32) && !defined(_WIN64)
 #include <netdb.h>
@@ -36,23 +37,40 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #else
-#include <WS2tcpip.h>
+#include <WS2tcpip.h> // For sockaddr_storage etc. on Windows
 #endif
+
+// Define constants for PTT sequence feature
+// These are used by CYSFRepeater constructor and logic in YSFReflector.cpp
+const uint8_t PRIVATE_ROOM_DGID = 99;    // DG-ID for private room communications
+const int PTT_SEQUENCE_COUNT_TARGET = 3; // Number of PTTs to trigger mode switch
+const unsigned int PTT_SEQUENCE_WINDOW_SECONDS = 5; // Window for PTT sequence (in seconds)
+
 
 class CYSFRepeater {
 public:
 	CYSFRepeater() :
-	m_callsign(),
-	m_addr(),
-	m_addrLen(0U),
-	m_timer(1000U, 60U)
+	    m_callsign(),
+	    // m_addr and m_addrLen are set when repeater is added
+	    m_timer(1000U, 60U), // Keep-alive timer: 1s tick, 60s timeout
+        // Initialize new members for private mode and PTT sequence
+        m_isInPrivateMode(false),
+        m_pttPressCount(0),
+        m_pttSequenceTimer(1000U, PTT_SEQUENCE_WINDOW_SECONDS) // PTT sequence timer
 	{
+        m_timer.stop(); // Ensure timer is not running until first poll/activity
+        m_pttSequenceTimer.stop(); // Ensure PTT sequence timer is not running initially
 	}
 
 	std::string      m_callsign;
 	sockaddr_storage m_addr;
 	unsigned int     m_addrLen;
-	CTimer           m_timer;
+	CTimer           m_timer;           // Keep-alive timer
+
+    // New members for private mode and PTT sequence feature
+    bool             m_isInPrivateMode;   // True if user is in private mode
+    uint8_t          m_pttPressCount;     // Counter for PTT sequence
+    CTimer           m_pttSequenceTimer;  // Timer for the PTT sequence window
 };
 
 class CYSFReflector
@@ -66,14 +84,20 @@ public:
 private:
     CConf                      m_conf;
     std::vector<CYSFRepeater*> m_repeaters;
-    bool                       m_txActive;
-    unsigned char              m_currentTag[YSF_CALLSIGN_LENGTH];
-    unsigned char              m_currentSrc[YSF_CALLSIGN_LENGTH];
-    unsigned char              m_currentDst[YSF_CALLSIGN_LENGTH];
-    sockaddr_storage           m_currentAddr;
-    unsigned int               m_currentAddrLen;
 
-    // Member functions AFTER
+    // Member variables for current transmission state
+    bool                       m_txActive;
+    unsigned char              m_currentTag[YSF_CALLSIGN_LENGTH];    // Callsign of current transmitting hotspot/repeater
+    unsigned char              m_currentSrc[YSF_CALLSIGN_LENGTH];    // Callsign of current transmitting user
+    unsigned char              m_currentDst[YSF_CALLSIGN_LENGTH];    // Textual destination from current packet (TG name/callsign)
+    sockaddr_storage           m_currentAddr;                        // Network address of current transmitter
+    unsigned int               m_currentAddrLen;                     // Length of current transmitter address
+
+    // New members for tracking current transmitter object and its numeric DG-ID
+    CYSFRepeater*              m_currentRptObject;   // Pointer to the CYSFRepeater object of the current transmitter
+    uint8_t                    m_currentNumericDGID; // Numeric DG-ID of the current transmission stream
+
+    // Private member functions
     CYSFRepeater* findRepeater(const sockaddr_storage& addr) const;
     void dumpRepeaters() const;
 };
