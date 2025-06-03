@@ -44,7 +44,7 @@
 // These are used by CYSFRepeater constructor and logic in YSFReflector.cpp
 const uint8_t PRIVATE_ROOM_DGID = 99;    // DG-ID for private room communications
 const int PTT_SEQUENCE_COUNT_TARGET = 3; // Number of PTTs to trigger mode switch
-const unsigned int PTT_SEQUENCE_WINDOW_SECONDS = 5; // Window for PTT sequence (in seconds)
+const unsigned int PTT_SEQUENCE_WINDOW_SECONDS = 10; // Window for PTT sequence (in seconds)
 
 
 class CYSFRepeater {
